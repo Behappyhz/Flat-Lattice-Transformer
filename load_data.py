@@ -475,9 +475,9 @@ def load_weibo_ner(path,unigram_embedding_path=None,bigram_embedding_path=None,i
 
     # print(datasets['train'][:5])
 
-    train_path = os.path.join(path,'weiboNER_2nd_conll.train_deseg')
-    dev_path = os.path.join(path, 'weiboNER_2nd_conll.dev_deseg')
-    test_path = os.path.join(path, 'weiboNER_2nd_conll.test_deseg')
+    train_path = os.path.join(path,'simple_weiboNER_2nd_conll.train')
+    dev_path = os.path.join(path, 'simple_weiboNER_2nd_conll.dev')
+    test_path = os.path.join(path, 'simple_weiboNER_2nd_conll.test')
 
     paths = {}
     paths['train'] = train_path
@@ -549,7 +549,132 @@ def load_weibo_ner(path,unigram_embedding_path=None,bigram_embedding_path=None,i
     return datasets, vocabs, embeddings
 
 
+def pack_predict_data(data, vocabs, w_list, max_seq=30):
+    from fastNLP.io.loader import ConllLoader
+    from V0.utils_ import Trie
+    from functools import partial
+    from fastNLP.core import Vocabulary
+    from fastNLP.embeddings import StaticEmbedding
+    from fastNLP import DataSet
 
+    def normalize_char(inp):
+        result = []
+        for c in inp:
+            if c.isdigit():
+                result.append('0')
+            else:
+                result.append(c)
+
+        return result
+
+    def normalize_bigram(inp):
+        result = []
+        for bi in inp:
+            tmp = bi
+            if tmp[0].isdigit():
+                tmp = '0' + tmp[:1]
+            if tmp[1].isdigit():
+                tmp = tmp[0] + '0'
+
+            result.append(tmp)
+        return result
+
+    def get_skip_path(chars, w_trie):
+        sentence = ''.join(chars)
+        result = w_trie.get_lexicon(sentence)
+        return result
+
+    def get_bigrams(words):
+        result = []
+        for i, w in enumerate(words):
+            if i != len(words) - 1:
+                result.append(words[i] + words[i + 1])
+            else:
+                result.append(words[i] + '<end>')
+
+        return result
+    def concat(ins):
+        chars = ins['chars']
+        lexicons = ins['lexicons']
+        result = chars + list(map(lambda x: x[2], lexicons))
+        # print('lexicons:{}'.format(lexicons))
+        # print('lex_only:{}'.format(list(filter(lambda x:x[2],lexicons))))
+        # print('result:{}'.format(result))
+        return result
+
+    def get_pos_s(ins):
+        lex_s = ins['lex_s']
+        seq_len = ins['seq_len']
+        pos_s = list(range(seq_len)) + lex_s
+
+        return pos_s
+
+    def get_pos_e(ins):
+        lex_e = ins['lex_e']
+        seq_len = ins['seq_len']
+        pos_e = list(range(seq_len)) + lex_e
+
+        return pos_e
+
+    def clip_string(words):
+
+        if len(words)>max_seq:
+            return words[:max_seq]
+        else:
+            return words
+
+    # 手动替换test文件
+    chars = [list(_) for _ in data]
+    target = [["O"] * len(_) for _ in data]
+    test_data = DataSet({'chars': chars, 'target': target})
+    datasets = {}
+    datasets['predict'] = test_data
+    datasets['predict'].apply_field(clip_string, field_name='chars', new_field_name='chars')
+    datasets['predict'].apply_field(clip_string, field_name='target', new_field_name='target')
+    datasets['predict'].apply_field(get_bigrams, field_name='chars', new_field_name='bigrams')
+    datasets['predict'].add_seq_len('chars')
+
+    a = DataSet()
+    w_trie = Trie()
+    for w in w_list:
+        w_trie.insert(w)
+
+    import copy
+    for k, v in datasets.items():
+        v.apply_field(partial(get_skip_path, w_trie=w_trie), 'chars', 'lexicons')
+        v.apply_field(copy.copy, 'chars', 'raw_chars')
+        v.add_seq_len('lexicons', 'lex_num')
+        v.apply_field(lambda x: list(map(lambda y: y[0], x)), 'lexicons', 'lex_s')
+        v.apply_field(lambda x: list(map(lambda y: y[1], x)), 'lexicons', 'lex_e')
+
+    for k, v in datasets.items():
+        v.apply(concat, new_field_name='lattice')
+        v.set_input('lattice')
+        v.apply(get_pos_s, new_field_name='pos_s')
+        v.apply(get_pos_e, new_field_name='pos_e')
+        v.set_input('pos_s', 'pos_e')
+
+    char_vocab = vocabs["char"]
+    bigram_vocab = vocabs["bigram"]
+    label_vocab = vocabs["label"]
+    lattice_vocab = vocabs["lattice"]
+
+    char_vocab.index_dataset(*(datasets.values()),
+                             field_name='chars', new_field_name='chars')
+    bigram_vocab.index_dataset(*(datasets.values()),
+                               field_name='bigrams', new_field_name='bigrams')
+    label_vocab.index_dataset(*(datasets.values()),
+                              field_name='target', new_field_name='target')
+    lattice_vocab.index_dataset(*(datasets.values()),
+                                field_name='lattice', new_field_name='lattice')
+
+
+    for k, v in datasets.items():
+        v.set_input('lattice','bigrams','seq_len','target')
+        v.set_input('lex_num','pos_s','pos_e')
+        v.set_target('target','seq_len')
+
+    return datasets
 
 if __name__ == '__main__':
     pass

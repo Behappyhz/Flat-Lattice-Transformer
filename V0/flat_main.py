@@ -23,6 +23,9 @@ from fastNLP import LossInForward
 from fastNLP.core.metrics import SpanFPreRecMetric,AccuracyMetric
 from fastNLP.core.callback import WarmupCallback,GradientClipCallback,EarlyStopCallback,FitlogCallback
 from fastNLP import LRScheduler
+from fastNLP.io.model_io import ModelSaver
+from fastNLP.core import Tester
+from fastNLP.core.predictor import Predictor
 from torch.optim.lr_scheduler import LambdaLR
 # from models import LSTM_SeqLabel,LSTM_SeqLabel_True
 from fastNLP import logger
@@ -34,6 +37,8 @@ import traceback
 import warnings
 import sys
 
+import time
+
 from utils import print_info
 
 
@@ -41,7 +46,11 @@ from utils import print_info
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--status',default='train',choices=['train'])
+parser.add_argument('--vocab_path',type=str,default="/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/Weibo/vocab")
+parser.add_argument('--save_path',type=str,default="./save")
+parser.add_argument('--max_seq',default=30,type=int)
+parser.add_argument('--status',default='train',choices=['train', 'test'])
+# parser.add_argument('--status',default='train',choices=['train'])
 parser.add_argument('--msg',default='_')
 parser.add_argument('--train_clip',default=False,help='是不是要把train的char长度限制在200以内')
 parser.add_argument('--device', default='0')
@@ -602,16 +611,69 @@ class record_best_test_callback(Callback):
 
 
 
+# if args.status == 'train':
+#     trainer = Trainer(datasets['train'],model,optimizer,loss,
+#                       args.batch//args.update_every,
+#                       update_every=args.update_every,
+#                       n_epochs=args.epoch,
+#                       dev_data=datasets['dev'],
+#                       metrics=metrics,
+#                       device=device,callbacks=callbacks,dev_batch_size=args.test_batch,
+#                       test_use_tqdm=False,
+#                       print_every=5,
+#                       check_code_level=-1)
+
+#     trainer.train()
+
 if args.status == 'train':
-    trainer = Trainer(datasets['train'],model,optimizer,loss,
-                      args.batch//args.update_every,
-                      update_every=args.update_every,
+    # 保存vocab文件
+    for k, v in vocabs.items():
+        v.save(os.path.join(args.vocab_path, '{}_vocab.txt'.format(k)))
+
+    trainer = Trainer(datasets['train'],model,optimizer,loss,args.batch,
                       n_epochs=args.epoch,
                       dev_data=datasets['dev'],
                       metrics=metrics,
                       device=device,callbacks=callbacks,dev_batch_size=args.test_batch,
-                      test_use_tqdm=False,
-                      print_every=5,
-                      check_code_level=-1)
+                      test_use_tqdm=False,check_code_level=-1,
+                      update_every=args.update_every)
 
     trainer.train()
+    model_dir = "{}/{}/{}".format(args.save_path, args.dataset, time.strftime('%Y_%m_%d_%H_%M_%S'))
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    model_path = "{}/model_ckpt.pkl".format(model_dir)
+    saver = ModelSaver(model_path)
+    saver.save_pytorch(model, param_only=False)
+
+if args.status == "test":
+    model_dir = "{}/{}/2023_05_06_17_39_03".format(args.save_path, args.dataset)
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    model_path = "{}/model_ckpt.pkl".format(model_dir)
+    model = torch.load(model_path)
+    tester = Tester(datasets['test'],model,
+                      metrics=metrics,
+                      device=device)
+    res = tester.test()
+    print(res)
+
+    predictor = Predictor(model)   # 这里的model是加载权重之后的model
+    predictor.batch_size = 32
+
+    print("start time : ", time.strftime('%Y_%m_%d_%H_%M_%S'))
+    test_label_list = predictor.predict(datasets['test'])['pred']  # 预测结果
+    print("end time : ", time.strftime('%Y_%m_%d_%H_%M_%S'))
+    pred_tags = []
+    for test_label in test_label_list:
+        for item in test_label:
+            pred_tags.append(item)
+    test_raw_char = datasets['test']['raw_chars']     # 原始文字
+    predict_path = "./predict/{}/ner_predict.utf8".format(args.dataset)
+    with open(predict_path, "w")  as fw:
+        for sentence, tags in zip(test_raw_char, pred_tags):
+            for i in range(len(sentence)):
+                char = sentence[i]
+                tag_text = vocabs["label"].to_word(tags[i])
+                fw.writelines(char + " " + tag_text + "\n")
+            fw.writelines("\n")
