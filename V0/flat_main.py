@@ -46,7 +46,7 @@ from utils import print_info
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--vocab_path',type=str,default="/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/Weibo/vocab")
+parser.add_argument('--vocab_path',type=str,default=fashion_vocab_path)
 parser.add_argument('--save_path',type=str,default="./save")
 parser.add_argument('--max_seq',default=30,type=int)
 parser.add_argument('--status',default='train',choices=['train', 'test'])
@@ -250,6 +250,17 @@ elif args.dataset == 'msra':
                                                            only_train_min_freq=args.only_train_min_freq
                                                            )
 
+
+elif args.dataset == 'fashion':
+    datasets,vocabs,embeddings = load_fashion_ner(fashion_ner_path,yangjie_rich_pretrain_unigram_path,
+                                                    yangjie_rich_pretrain_bigram_path,
+                                                    _refresh=refresh_data,index_token=False,train_clip=False,
+                                                    _cache_fp=raw_dataset_cache_name,
+                                                    char_min_freq=args.char_min_freq,
+                                                    bigram_min_freq=args.bigram_min_freq,
+                                                    only_train_min_freq=args.only_train_min_freq
+                                                    )
+
 if args.gaz_dropout < 0:
     args.gaz_dropout = args.embed_dropout
 
@@ -284,6 +295,8 @@ elif args.dataset == 'ontonotes':
 elif args.dataset == 'msra':
     pass
 
+elif args.dataset == 'fashion':
+    args.epoch = 70
 
 
 
@@ -507,7 +520,7 @@ with torch.no_grad():
 
 loss = LossInForward()
 encoding_type = 'bmeso'
-if args.dataset == 'weibo':
+if args.dataset == 'weibo' or 'fashion':
     encoding_type = 'bio'
 f1_metric = SpanFPreRecMetric(vocabs['label'],pred='pred',target='target',seq_len='seq_len',encoding_type=encoding_type)
 acc_metric = AccuracyMetric(pred='pred',target='target',seq_len='seq_len',)
@@ -647,7 +660,7 @@ if args.status == 'train':
     saver.save_pytorch(model, param_only=False)
 
 if args.status == "test":
-    model_dir = "{}/{}/2023_05_06_17_39_03".format(args.save_path, args.dataset)
+    model_dir = "{}/{}/2023_05_10_15_35_08".format(args.save_path, args.dataset)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     model_path = "{}/model_ckpt.pkl".format(model_dir)
