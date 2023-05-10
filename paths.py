@@ -17,7 +17,7 @@ weibo_ner_path = '/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/We
 daily_ner_path = '/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/PeopleDaily'
 fashion_ner_path = '/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/Fashion'
 
-
+fashion_vocab_path = '/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/Fashion/vocab'
 vocab_path = '/home/masters/HZ/data/corpus/sequence_labelling/chinese_ner/Weibo/vocab'
 
 # yangjie_rich_pretrain_unigram_path = '{}/gigaword_chn.all.a2b.uni.ite50.vec'
